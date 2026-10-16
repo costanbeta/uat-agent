@@ -1,0 +1,14 @@
+{
+  "runs": [
+    { "matched": 5, "denominator": 10, "accepted": 8, "total": 10 },
+    { "matched": 4, "denominator": 10, "accepted": 8, "total": 10 },
+    { "matched": 6, "denominator": 10, "accepted": 9, "total": 10 }
+  ],
+  "round2": [
+    { "tool": "fixed", "human": "fixed" },
+    { "tool": "still broken", "human": "still broken" },
+    { "tool": "regressed", "human": "regressed" },
+    { "tool": "fixed", "human": "still broken" },
+    { "tool": "can't tell", "human": "fixed" }
+  ]
+}

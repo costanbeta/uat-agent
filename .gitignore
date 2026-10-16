@@ -1,0 +1,7 @@
+node_modules/
+.gstack/
+uat-out/
+evidence/
+*.ledger.json
+.env
+staging.config

@@ -1,0 +1,23 @@
+# Design-system rules for the judgment step. Edit freely; ids are shown in the sheet's evidence.
+# Seeded from the WhatsApp Template Studio UAT sheet (Aug to Sep 2026).
+rules:
+  - id: skeleton-not-spinner
+    text: Loading states use a skeleton loader, not a spinner.
+  - id: sentence-case
+    text: UI text uses sentence case.
+  - id: status-badge
+    text: Status badges use the secondary badge component with the design's status colors.
+  - id: icon-hover
+    text: Icon buttons have a hover state as designed.
+  - id: input-border
+    text: Inputs follow the design's border and width; check every input field on the screen.
+  - id: tab-strip
+    text: The tab strip has the designed border and selected-state color.
+  - id: empty-state
+    text: Empty and "no items" states match the designed screen.
+  - id: text-style
+    text: Body text uses the regular text style from the design system.
+  - id: spacing
+    text: Spacing between sections and inside cards follows the design.
+  - id: separators
+    text: Separator lines extend and appear exactly where the design shows them.

@@ -1,0 +1,26 @@
+{
+  "name": "uat-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Design UAT agent: compare staging to Figma, write UAT sheet rows, recheck across rounds",
+  "scripts": {
+    "uat": "tsx src/cli.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.64.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}
