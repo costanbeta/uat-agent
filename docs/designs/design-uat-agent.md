@@ -34,7 +34,7 @@ What the 32 real rows look like (rough sort): about 12 property or token mismatc
 1. Reuse existing diff engines (Figma MCP, Playwright). New work is sheet-format output, annotated evidence, and the multi-round ledger.
 2. REVISED after second opinion: vision judgment plus a design-system rules layer decide issues; property values (computed style vs Figma) are attached as evidence, not used as the gate. Uncertain items are flagged "needs human look", never raised as confident defects.
 3. Wedge is one screen at a time plus the re-check round. For big workflows Vijay supplies a frame-to-URL-and-state list; the tool does not discover it.
-4. Runs locally as Vijay, using his logged-in browser profile; writes CSV (Sheet later) in his columns plus three additive columns ("UAT ID", "Tool verdict (round N)" and "Needs human look"). No hosted service.
+4. Runs locally as Vijay, using a dedicated staging-only browser profile; writes CSV (Sheet later) in his columns plus three additive columns ("UAT ID", "Tool verdict (round N)" and "Needs human look"). No hosted service.
 5. Humans own product decisions. The tool never raises them; Comments and Dev Status stay human.
 
 ## Cross-Model Perspective
@@ -47,7 +47,7 @@ Claude subagent cold read (same harness as the session; Codex not installed, so 
 
 ## Approaches Considered
 ### Approach A: Claude Code skills with deterministic scripts, check and recheck as separate commands (CHOSEN, eng review D4 A)
-`/uat-check <staging-url> <figma-url>` and `/uat-recheck <last-sheet.csv>`. Playwright on the user's logged-in profile, Figma MCP for design data, Claude vision for judgment. Effort S (2-3 days to first useful run), risk low.
+`/uat-check <staging-url> <figma-url>` and `/uat-recheck <last-sheet.csv>`. Playwright on a dedicated staging-only profile, Figma MCP for design data, Claude vision for judgment. Effort S (2-3 days to first useful run), risk low.
 ### Approach B: Chrome extension side panel
 Better daily UX and easier teammate adoption, but 2-3 weeks before knowing if detection quality is good enough. Ruled out for now; can reuse the same core later.
 ### Approach C: Re-check only, ledger-first
@@ -68,13 +68,13 @@ Approach A is CONDITIONAL on a go/no-go check: after the Assignment trial, if Ov
 
 **v1 scope:** default-state screens only, plus an optional per-screen action file (YAML list of click/hover steps) Vijay writes by hand to reach hover, empty, and modal states. Rows that need a state with no action file are listed under "not covered" in the report and excluded from success metrics.
 
-**`/uat-check` input:** `--url <staging-url> --figma <node-url> [--actions <file>] [--rules <file>] --expect <selector> [--allow-post <pattern>]` (`--expect` is required, D3.4). One screen per run. Big workflows are run screen by hand; a `screens.yaml` batch loop is deferred until the first success check passes (eng review D2).
+**`/uat-check` input:** `--url <staging-url> --figma <node-url> [--actions <file>] [--rules <file>] --expect <selector> [--allow-post <exact-path>] [--allow-final-path <pattern>] [--allow-password-field]` (`--expect` is required, D3.4). The skill adds `--width` and `--dpr` from the Figma frame. One screen per run. Big workflows are run screen by hand; a `screens.yaml` batch loop is deferred until the first success check passes (eng review D2).
 
-**Comparison pipeline:** (1) Playwright loads the URL at the Figma frame's width, waits for network idle, waits for the page to settle, then aborts with zero rows if the final URL origin or path differs from `--url` (compared after normalizing a trailing slash and hash), the status is 400 or higher, the required `--expect` landmark is missing, or a login signal such as a password input is present (eng review D7, D3.4), and re-checks this right before the screenshot, then captures a screenshot and a DOM dump of visible elements with computed styles and bounding boxes. (2) Figma MCP returns the frame image and node properties (component names, fills, strokes, auto-layout fill/hug, text styles, variables). (3) One vision call per screen receives both images, the Figma properties, the DOM summary, and the rules file, and returns structured issues: description, section, priority, selector or bbox, computed-vs-Figma values, confidence. (4) Data-driven content (names, counts, dates) is ignored unless the Figma frame specifies it. (5) Low-confidence items become "needs human look".
+**Comparison pipeline:** (1) The skill calls Figma MCP first and gets the frame image, its width and device scale factor, and the node properties (component names, fills, strokes, auto-layout fill/hug, text styles, variables). (2) Playwright, run with `--width` and `--dpr` from that frame, loads the URL, waits for network idle and for the page to settle, then aborts with zero rows if the origin is not in the rules file's `staging-origins` list, the final URL origin or path differs from `--url` (compared after normalizing a trailing slash and hash; `--allow-final-path` covers known canonical redirects), the status is 400 or higher, the required `--expect` landmark is missing, or a login signal such as a password input is present (waived only by `--allow-password-field`) (eng review D7, D3.4). It re-checks this right before the screenshot, then captures a screenshot and a DOM dump of visible elements with computed styles and bounding boxes, with input values and secret-looking attributes removed. (3) The judgment runs in a tool-less step (a subagent with no Drive, Bash or write tools) that receives both images, the Figma properties, the DOM summary and the rules file, and returns structured issues: description (length-limited, URLs stripped), section, priority, selector or bbox, computed-vs-Figma values, confidence. (4) Data-driven content (names, counts, dates) is ignored unless the Figma frame specifies it. (5) Low-confidence items become "needs human look".
 
 **Rules file:** a short markdown/YAML list Vijay owns (skeleton not spinner, sentence case, secondary badge for status, hover on icon buttons). It is the source for the rows that have no Figma link. v1 ships with rules extracted from the WhatsApp sheet and Vijay edits it.
 
-**`/uat-recheck` behavior:** input is the previous CSV and its `ledger.json`. Each prior row carries a stable UAT ID, its old evidence crop, its Figma link, and its selector/bbox from the check run. Recheck runs the same wrong-page guard (D7) and network guard (D8) as check, and aborts without touching the CSV or ledger if either trips. It replays the capture configuration stored in the ledger (see Ledger sidecar) and returns can't tell for every row if the replayed state, viewport or Figma version differs. The tool loads the screen once per run (running its action file once), then for each row crops the same region from that single capture and returns fixed / still broken / can't tell with a one-line reason and a new evidence image. Previously "fixed" rows are re-checked too, so regressions surface as "regressed". A full check of the screen also runs, and newly found issues are appended as new rows marked "new in round N". Rows with no selector or bbox (manual rows Vijay added) are returned as can't tell.
+**`/uat-recheck` behavior:** input is the previous CSV and its `ledger.json`. Each prior row carries a stable UAT ID, its old evidence crop, its Figma link, and its selector/bbox from the check run. Recheck runs the same wrong-page guard (D7) and network guard (D8) as check, and aborts without touching the CSV or ledger if either trips. It replays the capture configuration stored in the ledger (see Ledger sidecar) and returns can't tell for every row if the action file hash or viewport differs, and for a row if its Figma node's properties hash differs from the ledger (compared per node, not by file version). A changed rules file affects only rule-based rows. A row gets a fixed, still broken or regressed verdict only when its selector still resolves; bbox-only rows return can't tell. UAT IDs that belong to other screens are out of scope for this run and are skipped, not marked can't tell. The tool loads the screen once per run (running its action file once), then for each row crops the same region from that single capture and returns fixed / still broken / can't tell with a one-line reason and a new evidence image. Previously "fixed" rows are re-checked too, so regressions surface as "regressed". A full check of the screen also runs, and newly found issues are appended as new rows marked "new in round N". Rows with no selector or bbox (manual rows Vijay added) are returned as can't tell.
 
 **Column ownership:**
 | Column | Written by |
@@ -87,38 +87,38 @@ Approach A is CONDITIONAL on a go/no-go check: after the Assignment trial, if Ov
 | UAT ID | New column: tool-written stable id (U-0001...), the recheck join key; human must not delete or edit it; a row without a known id returns can't tell (eng review D6) |
 | Needs human look | New column: "needs human look" or blank, plus the reason; carried into recheck; the human clears it |
 
-**Ledger sidecar:** each run writes `ledger.json` next to the CSV, keyed by UAT ID, holding per row: UAT ID, screen entry (the single --url/--figma pair, stored as a one-entry screens list so a batch loop can be added later without a format change) with its capture configuration (action file path and hash, `--expect` selector, `--allow-post` patterns, rules file hash, viewport width, height and device scale factor, Figma file version or last-modified, capture timestamp), selector or bbox, Figma node id, rule id if any, evidence paths per round, the round the row first appeared in ("new in round N"), and the per-round tool verdict. The CSV stays in Vijay's columns plus the added "UAT ID", "Tool verdict (round N)" and "Needs human look" columns (additive; his existing columns are untouched); rows join to the ledger on UAT ID. UAT IDs come from a monotonic counter stored in the ledger and are never reused. A duplicate UAT ID in the CSV returns can't tell for both rows. The CSV and ledger carry a shared run id; recheck aborts if they differ. A run writes the ledger first and the CSV last, each by temp file then rename. Cell values written to the CSV that start with `=`, `+`, `-`, `@`, tab or carriage return are prefixed with a single quote so page text cannot become a sheet formula; Reference link holds only Drive URLs. `/uat-recheck` takes the CSV and its `ledger.json`; rows in the CSV with no ledger entry (rows Vijay added by hand) come back as can't tell. A single-screen run writes a one-entry screens list into the ledger, so recheck never needs a hand-written screens.yaml.
+**Ledger sidecar:** each run writes `ledger.json` next to the CSV, keyed by UAT ID, holding per row: UAT ID, screen entry (the single --url/--figma pair, stored as a one-entry screens list so a batch loop can be added later without a format change) with its capture configuration (action file path and hash, `--expect` selector, `--allow-post` patterns, rules file hash, viewport width, height and device scale factor, Figma node properties hash, capture timestamp), selector or bbox, Figma node id, rule id if any, evidence paths per round, the round the row first appeared in ("new in round N"), and the per-round tool verdict. The CSV stays in Vijay's columns plus the added "UAT ID", "Tool verdict (round N)" and "Needs human look" columns (additive; his existing columns are untouched); rows join to the ledger on UAT ID. UAT IDs are namespaced by screen (`U-<screen-slug>-0001`) and come from a monotonic counter stored in that screen's ledger, never reused. A duplicate UAT ID in the CSV returns can't tell for both rows. Each run writes `ledger.<run-id>.json` and `<run-id>.csv` by temp file then rename, never overwriting an earlier round's files, and flips a `latest` pointer last by atomic rename; recheck reads the pointer and checks that every UAT ID of its screen in the exported CSV exists in the ledger (IDs missing from it return can't tell). The CSV is imported into Google Sheets with "Convert text to numbers, dates and formulas" off; as defense in depth, cell values that start (after any leading whitespace) with `=`, `+`, `-`, `@`, tab, carriage return or line feed are prefixed with a single quote, one leading quote is stripped when the CSV is read back, and a round-trip test covers it. Reference link holds only a Drive URL, or is blank when the upload failed (the marker goes in Needs human look). `/uat-recheck` takes the CSV and its `ledger.json`; rows in the CSV with no ledger entry (rows Vijay added by hand) come back as can't tell. A single-screen run writes a one-entry screens list into the ledger, so recheck never needs a hand-written screens.yaml.
 
-**Sheet round trip (D3.5):** Vijay and devs edit the live Google Sheet, so recheck takes a fresh CSV export of the sheet. Alongside the full CSV, each run writes a delta CSV holding only the tool-owned columns (UAT ID, Tool verdict (round N), Needs human look) plus new rows, keyed by UAT ID. Vijay pastes the delta back by UAT ID; the tool never asks him to replace the whole table, so edits made since the export are not overwritten.
+**Sheet round trip (D3.5):** Vijay and devs edit the live Google Sheet, so recheck takes a fresh CSV export of the sheet. Alongside the full CSV, each run writes a delta CSV holding only the tool-owned columns (UAT ID, Tool verdict (round N), Needs human look) plus new rows, keyed by UAT ID. Vijay merges the delta by UAT ID: import it into a new tab of the sheet, fill the tool columns in the main table with `XLOOKUP` on UAT ID, copy rows marked new into the table, and add the "Tool verdict (round N)" column by hand once per round. The tool never asks him to replace the whole table, so edits made since the export are not overwritten.
 
 **Legacy sheet (D3.1):** the WhatsApp Template Studio sheet is not a scoring ground truth: its defects were raised and fixed across past builds, so a fresh run cannot be compared with its rows. It seeds the rules file and shows row types. There is no anchors.csv bootstrap. Re-check agreement is measured on the tool's own round-1 ledger for a feature currently in UAT.
 
-**Evidence format (v1):** a PNG per row saved locally under `evidence/<round>/<UAT ID>.png` with the issue region boxed in red and the matching Figma crop beside it; the tool also uploads each PNG to a Google Drive folder and writes the shareable URL into the Reference link cell, replacing prnt.sc (eng review D5), in a folder shared restricted to the company domain and never "anyone with the link" (D3.3). The local file stays as the source copy.
+**Evidence format (v1):** a PNG per row saved locally under `evidence/<round>/<UAT ID>.png` with the issue region boxed in red and the matching Figma crop beside it; the tool also uploads each PNG to a Google Drive folder and writes the shareable URL into the Reference link cell, replacing prnt.sc (eng review D5), in a folder shared restricted to the company domain and never "anyone with the link" (D3.3). The local file stays as the source copy. If an upload fails, Reference link stays blank, the local path stays in the ledger only, and Needs human look says "evidence upload failed".
 
-**Data handling and safety:** staging screenshots go to the model API, so Vijay must confirm this is allowed for the target environment before the first run; screens that show real customer data are skipped or run on test accounts. The browser blocks write methods at the network layer (eng review D8). This covers HTTP write methods only: state-changing GET requests, WebSocket or SSE messages, `sendBeacon` and service-worker traffic are not blocked, so it is a guard rail, not a read-only guarantee. PUT, PATCH and DELETE requests are always aborted, POST is aborted unless it matches `--allow-post <pattern>`, and every blocked request is listed in the run report. A text/selector match on delete/remove/confirm/submit clicks stays as a second check, and any such click must be listed in an action file by Vijay. The browser profile, `evidence/`, CSVs and `ledger.json` stay out of git (`.gitignore`d), and the browser profile lives outside the repository directory. Hardening (D3.2): run on a dedicated Playwright profile that holds only staging cookies, with a least-privilege staging test account; treat page, DOM and Figma text as data, never instructions, and accept only schema-validated judgment output.
+**Data handling and safety:** staging screenshots go to the model API, so Vijay must confirm this is allowed for the target environment before the first run; screens that show real customer data are skipped or run on test accounts. The browser blocks write methods at the network layer (eng review D8). This covers HTTP write methods only: state-changing GET requests, WebSocket or SSE messages, `sendBeacon` and service-worker traffic are not blocked, so it is a guard rail, not a read-only guarantee. PUT, PATCH and DELETE requests are always aborted, POST is aborted unless its path exactly equals an `--allow-post` entry (no prefix or wildcard matches, and a bare GraphQL or RPC endpoint is never allowed because it carries mutations too), each allowed POST is logged, and every blocked request is listed in the run report. A navigation to an origin outside the `staging-origins` list is aborted. A text/selector match on delete/remove/confirm/submit clicks stays as a second check, and any such click must be listed in an action file by Vijay. The browser profile, `evidence/`, CSVs and `ledger.json` stay out of git (`.gitignore`d), and the browser profile lives outside the repository directory. Hardening (D3.2): run on a dedicated Playwright profile that holds only staging cookies, with a least-privilege staging test account; treat page, DOM and Figma text as data, never instructions, and accept only schema-validated judgment output.
 
 ## Open Questions
 - Does any existing tool (OverlayQA first) already do the multi-round ledger? If yes, buy or extend instead of build.
 - Which Figma frame maps to which staging page and state? Where does Vijay keep that list?
 - How to reach hover, empty, and modal states reliably: scripted action list per frame, or manual click-through while the tool watches?
-- Evidence upload: which Drive folder, and which authorization route (claude.ai Google Drive connector or Drive API)? Sharing is fixed to restricted-to-company-domain (D3.3). The connector reported needing authorization on 2026-10-17.
+- Evidence upload: which Drive folder, and which authorization route (claude.ai Google Drive connector or Drive API)? Sharing is fixed to restricted-to-company-domain (D3.3). The connector reported needing authorization on 2026-10-17, and it is unverified that it can upload binary PNGs or set domain-restricted sharing; uploads are private to the uploader by default, so devs could not open the links. If the connector cannot do it, fall back to a Drive API script or to manual upload (eng review D5 option A) before shipping to devs.
 - How often does Vijay override the rule-based priority guess? Revisit the rule after the first run.
 
 ## Success Criteria
 Measured live on a fresh round-1 run of a feature currently in UAT, scored by Vijay as he reviews (pre-landing review D3.1). The WhatsApp sheet is not used for scoring.
 - Recall denominator: the real defects Vijay himself finds on that screen in a manual pass done before he sees the tool's output (excluding product or tech decisions), reachable in v1 (default state or covered by an action file). Defined up front, not after seeing results.
 - Recall: share of that denominator the tool's rows cover; a tool row matches a defect when Vijay marks it as the same issue.
-- Precision: share of the tool's rows Vijay accepts rather than deletes.
+- Precision: share of the tool's rows Vijay accepts rather than deletes. Report-only in v1, with no threshold.
 - Re-check agreement: on round 2 of the same feature, the share of all rechecked rows where the tool's verdict (fixed, still broken, regressed) matches Vijay's own verdict. Can't tell counts as not agreed, and the can't-tell rate is reported next to the agreement figure.
-- Runs: three runs per measurement, median reported, so model non-determinism does not decide the result.
+- Runs: three round-1 runs per measurement, each scored for recall and precision with the median reported, so model non-determinism does not decide the result. Round-2 agreement is measured against one round-1 ledger chosen up front, and Vijay records his own round-2 verdicts before viewing the tool's.
 - Decision rule (provisional, to be tuned): recall at or above about 40% and agreement at or above about 80% means continue; recall under 40% with agreement at or above 80% means the ledger is the product; agreement under 80% means the tool is not ready to share. Real target: a pass that takes 3-4 hours today drops to a review-and-edit pass.
 
 ## Distribution Plan
-Local tool in this repo, run by Vijay from Claude Code or the terminal. No store, hosting, or CI at first. The Playwright profile, evidence and ledger files stay on his machine and out of git. Revisit sharing with the team only after the success criteria pass.
+Local tool in this repo, run by Vijay from Claude Code. No store, hosting, or CI at first. The Playwright profile, evidence and ledger files stay on his machine and out of git. Revisit sharing with the team only after the success criteria pass.
 
 ## Dependencies
 - Figma access to the team files through the Figma MCP server (eng review D4 A: MCP only, no token).
-- A persistent logged-in browser profile for staging.
+- A dedicated browser profile holding only staging cookies, and a least-privilege staging test account.
 - A hand-built frame-to-URL-and-state list for the first test screen.
 - A feature currently in UAT (round 1 not yet started) to score the tool on; the WhatsApp sheet seeds the rules file only.
 - Google Drive authorization and a shared evidence folder with a sharing policy devs and PMs can open (eng review D5).
@@ -133,7 +133,7 @@ Before any code: pick ONE screen from a feature that is about to enter UAT, writ
 - You agreed with each of the five premises as first proposed, then confirmed the revision of premise 2 after the second opinion. Disagree sooner when your gut says the tool will miss something; you know the failure modes better than I do.
 - "A missed issue is cheap, a bogus row is expensive" is your own account ("again raise issue to engineer so fix based on priority"), plus my inference about trust. Treat it as a belief to verify on the first run, not a measured fact.
 
-Note: the block below is the spec-review snapshot from the office-hours session. R3-1 (legacy-sheet bootstrap) and R3-2 (Premise 4 columns, attribution of the cost claim) were fixed in the text after that snapshot; see "Legacy sheet bootstrap", Premise 4 and Target User.
+Note: the block below is the spec-review snapshot from the office-hours session. R3-1 (legacy-sheet bootstrap) and R3-2 (Premise 4 columns, attribution of the cost claim) were fixed in the text after that snapshot; see "Legacy sheet (D3.1)", Premise 4 and Target User.
 
 <!-- gstack:office-hours:concerns:start -->
 ## Reviewer Concerns
@@ -193,7 +193,7 @@ REALITY: numbers finding 3-4h and 30-40 issues are Vijay's report [measured: use
 REALITY: deferred-asks finding original ask included a "functionality cross check" against Figma; v1 covers visual/property rows only and lists "check clone functionality" as can't-tell docs/designs/design-uat-agent.md:25
 REALITY: pr-count pass no .gstack/ship-policy.json, so the default of one PR per wave applies; the plan names no PR split and this review maps T0 to T8 to one wave (suggest one PR; the four lanes can be separate branches merged into it) docs/designs/design-uat-agent.md:117
 
-Complexity check (estimated from the v1 spec): about 12 proposed source files (two skill entrypoints, capture, figma, judge, rules, actions, ledger, csv, evidence, screens loader, anchors) plus package.json and tests. 8+ files, so the complexity gate applies.
+Complexity check (estimated from the v1 spec): about 12 proposed source files (two skill entrypoints, capture, figma, judge, rules, actions, ledger, csv, evidence, screens loader, anchors) plus package.json and tests. 8+ files, so the complexity gate applies. (As proposed at the time; since amended: there is no figma.ts, no screens loader and no anchors module, see v1 Behavior Spec.)
 
 Scope record: feature answers: D2 A (defer `screens.yaml` batch loop; user answer "A"); structure: D3 A (smaller arrangement, about 7 files: two skill entrypoints plus `capture.ts` [Playwright, actions, safety guard], `figma.ts`, `judge.ts` [prompt, schema, rules], `sheet.ts` [CSV, ledger, anchoring], `evidence.ts]`; user answer "A"); accepted scope: v1 is single-screen per run, smaller arrangement, all other v1 features unchanged; pending remedies: none at this point (sections 1-4 follow).
 Scope Challenge result: scope reduced per recommendation. Working-plan amendments applied above: `/uat-check` input, `/uat-recheck` input, ledger screen-entry wording.
@@ -593,41 +593,48 @@ Approval readiness: PASS for every accepted remedy, with CQ4 (canonical column l
 ## Diagrams
 ```
  Claude Code session (Vijay)
-   /uat-check --url U --figma F [--actions A] [--rules R] [--expect S] [--allow-post P]
+   /uat-check --url U --figma F --expect S [--actions A] [--rules R] [--allow-post P]
         |
         v
-  capture.ts --Playwright, persistent profile--> staging (login)
-     |  guard: URL origin+path same, status < 400, --expect present   no -> ABORT, zero rows (D7)
-     |  network: abort PUT/PATCH/DELETE; POST unless --allow-post      (D8)
+  skill step (session) --Figma MCP--> frame image, width, dpr, node properties (error on auth/not found)
+        |
+        v
+  capture.ts --Playwright, dedicated staging-only profile, --width/--dpr--> staging (login)
+     |  guard: origin in staging-origins, URL origin+path same, status < 400,
+     |         --expect present, no login signal   no -> ABORT, zero rows (D7, D3.4)
+     |  network: abort PUT/PATCH/DELETE; POST only for exact --allow-post paths (D8)
      |  screenshot + DOM computed styles + bboxes (--max-elements)
      v
-  skill step (session) --Figma MCP--> frame image + node properties (error on auth/not found)
-     v
-  skill step (session): vision judgment + rules.md --> judgment.json
+  skill step (session, tool-less subagent): vision judgment + rules.md --> judgment.json
      v
   judge.ts  zod-validates judgment.json --> issues[]; invalid/low confidence -> "Needs human look"
      v
   evidence.ts --> evidence/<round>/<UAT ID>.png
-  skill step (session) --> Drive upload (failure keeps local path + marker)
-  sheet.ts    --> CSV (his columns + UAT ID + Tool verdict + Needs human look) + ledger.json (atomic write)
+  skill step (session) --> Drive upload (failure: blank Reference link + marker in Needs human look)
+  sheet.ts    --> CSV + delta CSV (his columns + UAT ID + Tool verdict + Needs human look) + ledger.<run-id>.json, `latest` pointer last
         ^
-  /uat-recheck CSV + ledger.json --> load screen once, crop per row --> fixed / still broken / can't tell / regressed
+  /uat-recheck exported CSV + ledger --> load screen once, crop per row --> fixed / still broken / can't tell / regressed
 ```
 
 ## Failure modes
 | New path | Realistic failure | Test | Handling | User sees |
 |---|---|---|---|---|
 | capture.ts navigate | login session expired | planned (capture.test) | D7 abort, zero rows | clear error |
-| capture.ts network guard | POST used for reads gets blocked, page half-loads | planned | blocked requests listed in report, `--allow-post` | listed in report |
+| capture.ts navigate | path mismatch, status 400 or higher, missing `--expect`, password-input login signal, origin outside `staging-origins`, missing `--expect` argument | planned (capture.test guard matrix; no output files after abort) | abort, zero rows | clear error |
+| capture.ts network guard | POST used for reads gets blocked, page half-loads | planned | blocked requests listed in report, exact-path `--allow-post` | listed in report |
+| capture.ts network guard | PUT, PATCH, DELETE, or POST with a non-matching path | planned (capture.test) | aborted, listed in report | listed in report |
 | skill Figma step | Figma MCP unauthorized or node not found | manual run, error text documented in the skill | abort with explicit message (mechanics) | clear error |
 | judge.ts | malformed JSON or bbox outside image | planned (judge.test) | schema validation, "Needs human look" | flagged row |
 | sheet.ts | rows sorted, deleted or reworded between rounds | planned (sheet.test) | UAT ID join; unknown id returns can't tell | can't tell row |
 | sheet.ts | duplicate, blank, mis-cased or ledger-missing UAT ID | planned (sheet.test table rows) | can't tell for duplicates; blank or unknown id can't tell | can't tell row |
-| sheet.ts write | crash mid-write or between the two files | planned (crash-injection test) | ledger first, CSV last, temp file then rename; shared run id checked by recheck | old files intact |
-| sheet.ts write | page text starting with `=`, `+`, `-`, `@` | planned (table-driven test) | leading single quote added | text shown literally |
+| sheet.ts write | crash mid-write or between the two files | planned (crash-injection test between the two renames) | per-run files, never overwritten; `latest` pointer flipped last; recheck reads the pointer | previous round stays current |
+| sheet.ts write | page text starting with `=`, `+`, `-`, `@`, tab, CR, LF or leading spaces | planned (table-driven round-trip test) | import with formula conversion off, plus leading single quote, stripped on read | text not evaluated |
+| sheet.ts delta | delta CSV content | planned (sheet.test) | only tool-owned columns and new rows, keyed by UAT ID | delta tab |
+| sheet.ts IDs | UAT ID collision across screens | planned (sheet.test) | IDs namespaced `U-<screen-slug>-NNNN`; other screens' IDs skipped on recheck | no false can't tell |
 | recheck | expired login or write request during recheck | planned (fixture, files byte-identical after abort) | same D7 and D8 guards as check | clear error |
-| recheck | fixed, still broken, can't tell, regressed verdicts; selector gone; viewport or Figma version changed | planned (sheet.test and round-trip e2e) | can't tell on mismatch | can't tell row |
-| evidence.ts upload | Drive auth or permission failure | planned (fake uploader) | local path kept, marker | "evidence upload failed" |
+| recheck | fixed, still broken, can't tell, regressed verdicts; selector gone; bbox-only row; viewport or node properties changed | planned (sheet.test and round-trip e2e) | can't tell on mismatch or unresolved selector | can't tell row |
+| evidence.ts upload | Drive auth or permission failure | planned (fake uploader) | blank Reference link, local path in ledger, "evidence upload failed" in Needs human look | flagged row |
+| evidence upload | uploaded file not restricted to the company domain | manual check (connector behavior is unverified) | verify sharing on the first real upload before telling devs | open question |
 Critical gaps flagged: 2 (A3 wrong-row join, A4 expired login), both resolved by D6 and D7 in this review. 0 open.
 
 ## Worktree parallelization strategy
@@ -635,7 +642,7 @@ Critical gaps flagged: 2 (A3 wrong-row join, A4 expired login), both resolved by
 |---|---|---|
 | Scaffold (package.json, tsconfig, .gitignore) | repo root | none |
 | capture + fixture server + guard tests | src/capture, tests/capture | scaffold |
-| sheet (CSV, ledger, UAT ID, anchors) + tests | src/sheet, tests/sheet | scaffold |
+| sheet (CSV, ledger, UAT ID, delta CSV) + tests | src/sheet, tests/sheet | scaffold |
 | judge (schema, rules, priority) + tests | src/judge, tests/judge | scaffold |
 | evidence + tests | src/evidence | scaffold |
 | Skills (`/uat-check`, `/uat-recheck`) + round-trip e2e + eval | skills/, tests/e2e, tests/eval | all above |
@@ -651,10 +658,10 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: Section 2 CQ4 — "his columns" is undefined (design-uat-agent.md:19)
   - Files: docs/designs/design-uat-agent.md
   - Verify: the doc names the exact CSV header list
-- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — scaffold — Create package.json (playwright, zod, vitest, tsx), tsconfig, .gitignore for the browser profile, evidence and tokens
+- [ ] **T1 (P1, human: ~1h / CC: ~10min)** — scaffold — Create package.json (playwright, zod, vitest, tsx), tsconfig, .gitignore for evidence/, CSVs and ledger files (the browser profile lives outside the repo)
   - Surfaced by: Section 3 R7 (D10 A); Section 1 data-handling
   - Files: package.json, tsconfig.json, .gitignore
-  - Verify: `npx vitest run` runs with zero tests
+  - Verify: `npx vitest run --passWithNoTests` exits 0 with zero tests
 - [ ] **T2 (P1, human: ~1.5d / CC: ~45min)** — capture — Build capture.ts: navigate guards (D7), network guard (D8), actions runner, DOM dump with `--max-elements`, and fixture-server tests
   - Surfaced by: Section 1 A4, A5; Section 4 PF2
   - Files: src/capture.ts, tests/capture.test.ts, tests/fixtures/
@@ -679,13 +686,13 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: Section 1 A1; Section 4 PF1
   - Files: .claude/skills/uat-check/SKILL.md, .claude/skills/uat-recheck/SKILL.md
   - Verify: round-trip e2e on the fixture page
-- [ ] **T8 (P1, human: ~1d / CC: ~30min)** — tests — Round-trip e2e on the fixture page and the WhatsApp scoring eval with a recorded judge output
+- [ ] **T8 (P1, human: ~1d / CC: ~30min)** — tests — Round-trip e2e on the fixture page and a scoring-logic regression test that replays a recorded judge output (it checks the recall, precision and agreement arithmetic only; live scoring follows Success Criteria)
   - Surfaced by: Section 3 coverage diagram ([->E2E], [->EVAL])
-  - Files: tests/e2e/roundtrip.test.ts, tests/eval/whatsapp.eval.ts
-  - Verify: `npx vitest run tests/e2e`
+  - Files: tests/e2e/roundtrip.test.ts, tests/eval/scoring.eval.ts
+  - Verify: `npx vitest run tests/e2e tests/eval`
 
 ## Pre-landing review decisions (/ship, 2026-10-17)
-Answers to D3 (user reply "1. A 2.A 3. A 4.A 5.A 6. B"): D3.1 A measure on a fresh round-1 feature, drop the legacy-sheet agreement claim; D3.2 A security hardening requirements; D3.3 A Drive sharing restricted to the company domain; D3.4 A `--expect` required plus login-signal check; D3.5 A delta CSV pasted back by UAT ID; D3.6 B skip the simplification advisories (one-entry screens list, Drive upload, and anchors.csv, the last of which is removed by D3.1 anyway). Mechanical fixes auto-applied: stale REST/token wording removed, session/script boundary clarified, recheck guards, ledger capture configuration, UAT ID counter and duplicate handling, formula-injection quoting, terminology and citation fixes.
+Answers to D3 (user reply "1. A 2.A 3. A 4.A 5.A 6. B"): D3.1 A measure on a fresh round-1 feature, drop the legacy-sheet agreement claim; D3.2 A security hardening requirements; D3.3 A Drive sharing restricted to the company domain; D3.4 A `--expect` required plus login-signal check; D3.5 A delta CSV merged back by UAT ID; D3.6 B skip the simplification advisories (one-entry screens list, Drive upload, and anchors.csv, the last of which is removed by D3.1 anyway). Mechanical fixes auto-applied: stale REST/token wording removed, session/script boundary clarified, recheck guards, ledger capture configuration, UAT ID counter and duplicate handling, formula-injection quoting, terminology and citation fixes.
 
 ## Unresolved decisions
 - CQ4: which sheet column layout is canonical (Table3 with Section and Priority, or the WhatsApp layout with dated round columns). Blocks T3's CSV header list.
