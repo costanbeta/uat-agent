@@ -1,0 +1,1 @@
+/Users/vijay.chouhan/Documents/uat-agent/.claude/skills/gstack/scripts/question-registry.ts

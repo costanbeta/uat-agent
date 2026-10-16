@@ -1,0 +1,1 @@
+/Users/vijay.chouhan/.gstack/render/installs/claude-2221162058/land-and-deploy/sections/first-run-validation.md

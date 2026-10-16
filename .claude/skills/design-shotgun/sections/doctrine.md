@@ -1,0 +1,1 @@
+/Users/vijay.chouhan/.gstack/render/installs/claude-2221162058/design-shotgun/sections/doctrine.md

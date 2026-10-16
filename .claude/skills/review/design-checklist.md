@@ -1,0 +1,1 @@
+/Users/vijay.chouhan/.gstack/render/installs/claude-2221162058/review/design-checklist.md
